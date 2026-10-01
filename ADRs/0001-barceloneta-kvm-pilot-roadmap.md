@@ -38,12 +38,37 @@ as silent divergence from `agent-substrate/substrate`.
 
 Dependency order; each with hypothesis and success criterion.
 
-- [ ] **E-00 — k3s single-node bring-up + runsc RuntimeClass** (~0.3 d, directly on
+- [x] **E-00 — k3s single-node bring-up + runsc RuntimeClass** (~0.3 d, directly on
   the host)
   Hypothesis: `runsc` works as a containerd RuntimeClass handler on k3s on this NUC.
   Success: an actor pod runs under `runsc`; `sandboxconfig-gvisor.yaml` applies clean.
   Budget (feeds G-00a): pilot stack capped ~8 GB RAM / 30 GB disk; the **bot and
   Tailscale ssh stay healthy** before/after (measured) — ct100–102 are expendable.
+
+  **Result (2026-10-01, 21:57–22:12 CEST): GO.** k3s v1.36.5+k3s1 (stable channel),
+  installed with `--data-dir /home/k3s --write-kubeconfig-mode 644 --disable
+  traefik --disable servicelb --disable metrics-server` (coredns + local-path
+  kept). gVisor `release-20260928.0` (SHA256 verified). Three gotchas on record
+  for the next box:
+  (1) the old `storage.googleapis.com/gvisor/releases` URLs 404 now — releases
+  moved to GitHub, and the tarball ships a REQUIRED `gvisor-bin/` sidecar dir
+  (`gvisor_sentry`, `runsc-fd-parking`, `runsc-metric-server`) next to `runsc` +
+  `containerd-shim-runsc-v1`; default `--sidecar-usage-policy=STRICT` aborts every
+  sandbox without it (`stat /usr/local/bin/gvisor-bin/gvisor_sentry: no such file`);
+  (2) k3s's containerd 2.x only honors custom runtimes under the NEW plugin
+  namespace — template block must be
+  `[plugins.'io.containerd.cri.v1.runtime'.containerd.runtimes.runsc]` with
+  `runtime_type = 'io.containerd.runsc.v1'`; the legacy `io.containerd.grpc.v1.cri`
+  name renders into the file but is silently ignored (cost one restart cycle);
+  (3) the template lives at `<data-dir>/agent/etc/containerd/config.toml.tmpl`
+  (= `/home/k3s/agent/etc/containerd/config.toml.tmpl` here), built by copying the
+  generated `config.toml` and appending the block.
+  Proof: `runsc-test` pod (busybox, `runtimeClassName: gvisor`, RuntimeClass
+  handler `runsc`) went Ready in 4 s; in-pod `dmesg` prints the gVisor boot banner
+  on kernel 7.0.14-19-pve. Budget vs caps: available RAM 12.70 GB → 12.31 GB after
+  k3s idle + one runsc sandbox (stack cost ≈ 0.4 GB of the 8 GB cap);
+  `/home/k3s` = 253 MB of the 30 GB cap; load 0.15. Protected set intact after
+  install + restart: maquinista active, Tailscale ssh up, ct100–102 running.
 - [ ] **E-01 — manifest delta audit: upstream → k3s** (0.5–1 d) — *do first, falsifies
   the pilot's load-bearing assumption*
   Apply `manifests/ate-install` verbatim on k3s; record every failure and the minimal
