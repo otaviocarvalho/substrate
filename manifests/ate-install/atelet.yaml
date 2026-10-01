@@ -151,7 +151,7 @@ spec:
       - name: atelet
         image: ko://github.com/agent-substrate/substrate/cmd/atelet
         args:
-        - --gcp-auth-for-image-pulls=true
+        - --gcp-auth-for-image-pulls=false
         - --grpc-server-cred-bundle=/run/podidentity.podcert.ate.dev/credential-bundle.pem
         - --client-ca-certs=/run/podidentity.podcert.ate.dev/trust-bundle.pem
         - --ateapi-ca-file=/run/servicedns.podcert.ate.dev/trust-bundle.pem

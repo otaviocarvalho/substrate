@@ -105,3 +105,30 @@ Keep this up to date when updating AGENTS.md.
 - **Workload Isolation**: The project uses `gVisor` (`runsc`) for sandboxing and security isolation of workloads on pods.
 
 For future plans for security, reference `docs/roadmap.md`.
+
+## Fork: barceloneta deployment (NOT upstream)
+
+This checkout is the fork `otaviocarvalho/substrate` (`origin`). **Work branch: `barceloneta-k3s`** — commit directly here, never open PRs to upstream unless Otavio asks. Target machine is the barceloneta NUC running **k3s** (not kind, not GCP).
+
+### Deploy
+
+```
+ssh barceloneta
+export PATH=$PATH:/usr/local/go/bin
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+export NO_DEV_ENV=1
+export KO_DOCKER_REPO=100.74.121.4:30500
+export TMPDIR=/home/barceloneta/tmp-go
+~/bin/ate-setup deploy ate-system
+```
+
+Images build locally via ko into the k3s registry (nodePort 30500, configured insecure in `/etc/docker/daemon.json`); only the envoy-dataplane image is docker-built. The k3s node must carry label `atelet=true` (check DaemonSet nodeSelector — versioned atelet DS names get a `-dirty` suffix and a fresh label; a stale node label silently schedules the broken DS).
+
+### Runtime storage patch (re-apply after every deploy)
+
+`ate-setup deploy` re-applies base manifests with GCS defaults. After each deploy, re-apply the S3 patch (mirror of the kind overlay): rustfs S3 store + `ATE_STORAGE_BACKEND=s3` on api-server and atelet, plus the `rustfs-bucket-init` job. Full patch steps live in the Hermes skill `substrate-k3s-install`.
+
+### Host-level facts (not in this repo)
+
+- Docker on trixie + AppArmor 4.1 breaks `socketpair(AF_UNIX)` in build containers (`getaddrinfo() thread failed to start` in git/cargo). Fixed by a complain-mode `docker-default` profile at `/etc/apparmor.d/docker-default` that loads at boot before dockerd. Do not delete it.
+- Envoy Dockerfile sets `CARGO_HTTP_MULTIPLEXING=false` and `CARGO_NET_GIT_FETCH_WITH_CLI=true` — required behind this box's network path; do not remove.

@@ -27,6 +27,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY dynamic-modules/egress-policy/ .
 
 # Build release version of the dynamic module shared library
+# curl's HTTP/2 multiplexing trips an assertion in libcurl (multi.rs
+# !ptr.is_null()) against the crates.io sparse index on some networks;
+# 1.1 avoids it. Retries ride out flaky links.
+ENV CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=10 \
+    CARGO_HTTP_TIMEOUT=120 \
+    CARGO_NET_GIT_FETCH_WITH_CLI=true
 RUN cargo build --release --locked
 
 # Stage 2: Create the runtime image containing Envoy and the built dynamic module shared library
