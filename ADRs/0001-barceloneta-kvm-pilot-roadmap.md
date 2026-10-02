@@ -120,12 +120,54 @@ Dependency order; each with hypothesis and success criterion.
   live WebSocket/streaming relay (what maquinista G-00b would use) is NOT yet exercised
   — E-03 or a follow-up should stream the same stream before wiring MonitorProfile
   scraping. Artifacts: `~/e02-artifacts/` on the box (driver.go, pty.raw, pty.meta).
-- [ ] **E-03 — transcript egress via ate-env** (0.5–1 d; feeds G-00c)
-  Ship JSONL transcript lines out of sandboxes using per-actor fs ops (ate-env is
+- [x] **E-03 — transcript egress via ate-env** — DONE 02/10/2026
+  Plan: ship JSONL transcript lines out of sandboxes using per-actor fs ops (ate-env is
   alpha). Measure per-append latency + auth overhead; stream vs poll. Success: measured
   cost table → per-runner go/no-go. (Design note from E-02: direct egress is blocked
   inside actors — TLS reset by default-deny policy — so ate-env/atened is the only
   path; that constraint is now confirmed, not assumed.)
+
+  Result (ate-env @ ab40c7b deployed on k3s — ns `ate-env`: api + 6 gVisor workers,
+  template `default-template`; probe `~/code/env/e03probe/` on the box; workload =
+  300-line × ~184 B JSONL transcript replayed at 20 lines/s ≈ 55 KB):
+
+  **Verdict: GO** for per-runner transcript egress — live view via
+  `StreamProcessOutputs` push (TUI-grade), durable copy via segmented-file pull at
+  1 s polls. **NO-GO** for whole-file polling at scale, outside-initiated appends,
+  and multi-tenant exposure as-is (no per-call auth).
+
+  Cost table (client → port-forward → api → router → guest):
+  - Per-op fixed cost ≈ 8–9 ms; shell round-trip 20.2 ms mean (n=20); ReadFile 4 KB
+    8.8 ms / 256 KB 12.2 ms / 1 MB 40.5 ms (ceiling ≈ 26 MB/s). No per-call auth:
+    client→api is plaintext gRPC carrying `x-env-id`/`x-env-atespace` metadata only —
+    identity is network position; the api is the enforcement point G-00c must build.
+  - P1 push (lines → process stdout → `StreamProcessOutputs{Follow:true}`): 300/300
+    lines, one chunk per line (no coalescing), +2.17 s total over the 15 s nominal
+    run (≈ 7 ms/line pipeline cost), max inter-chunk gap 107 ms.
+  - P2 poll-whole-file (`ReadFile` every 1 s): staleness ≈ 2–3 s; wire 552 KB = 10×
+    amplification with O(n) growth (a 10 MB transcript ⇒ ~10 MB/s waste; @250 ms
+    polls → 1.88 MB = 34×).
+  - P3 segmented pull (40-line segments, `test -f` pre-check, 1 s polls, tail
+    segment re-read): staleness ≈ 2.3 s; wire 112 KB ≈ 2×; per-read 11–15 ms.
+
+  Findings:
+  (1) **WriteFile is O_TRUNC, no append RPC** — transcript appends must happen
+  IN-guest (shell `>>`); ate-env writes serve bootstrap/config only. No LIST/GLOB
+  RPC in the guest fs service → segment names must be predictable (poll N until
+  miss).
+  (2) **Push beats pull for liveness**: ~7 ms/line vs a 2–3 s poll floor; the floor
+  is interval-dominated, not read-cost-dominated — faster polling buys little
+  (250 ms polls: −0.8 s staleness for 3.4× wire cost).
+  (3) **Alpha bug, to file upstream: warm-connection ReadFile on a missing path
+  wedges** — no NotFound, no EOF; hangs until client timeout, while a fresh
+  connection returns NotFound in 26 ms. Pollers must existence-check
+  (`sh -c 'test -f'`, ~20 ms round-trip) and run per-read timeouts (probe: 15 s)
+  to self-heal. One further suspected stream wedge after env idle/resume (first
+  P3 run) — same class as E-02's suspend/resume caveat.
+  (4) **Fork skew**: env@ab40c7b emits ActorTemplate fields this fork's proto
+  rejects (`readyz` unknown; `snapshotsConfig` vs fork's `snapshotConfig`) — the
+  manifest was patched by hand to deploy; the fork is behind upstream's
+  ActorTemplate proto. Port the delta before E-04.
 - [ ] **E-04 — microVM probe** (~1 d; gated on upstream) — `/dev/kvm` is direct on the
   host, no passthrough needed
   `cmd/ateom-microvm` + `manifests/microvm/` on the NUC; target boot + snapshot
@@ -176,7 +218,8 @@ single-node k3s without hidden GCP/full-cluster assumptions.
 ## References
 
 - `agent-substrate/substrate` — inspected 21/09 + 01/10/2026 (this fork's upstream)
-- `agent-substrate/env` (ate-env) — cloned 01/10/2026; alpha API
+- `agent-substrate/env` (ate-env) — cloned on the box @ ab40c7b 02/10/2026; alpha API;
+  deployed to k3s (ns `ate-env`); probe at `~/code/env/e03probe/`
 - `google/ax` — CRDs (Task/Workspace/Gateway/Model) inspected 21/09/2026
 - maquinista ADR-0002/0003/0004 + `references/substrate-ax-integration.md` (fact base)
 - Hetzner FAQ nested-virt quote — fetched 21/09/2026
