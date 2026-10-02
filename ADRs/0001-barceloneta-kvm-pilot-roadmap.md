@@ -282,6 +282,20 @@ single-node k3s without hidden GCP/full-cluster assumptions.
   resolved keeping `--gcp-auth-for-image-pulls=false`: upstream's kubelet
   credential-provider mounts are GKE/EKS-specific and have no k3s equivalent here.
 
+**02/10/2026 — E-04 gate audit (maturity check, not started):** upstream tip
+`6a35150e` (== our current merge base — zero upstream drift since the 02/10
+tracking merge) carries a substantial `cmd/ateom-microvm` (~29 files incl.
+tests: checkpoint/restore, CSI wiring, sandbox net, hosted mode, per-actor
+checkpoint/restore benchmarking, kvm-clock, CRNG reseed) but
+`manifests/microvm/` still ships exactly ONE file —
+`sandboxconfig-microvm.yaml.tmpl`, a template with no rendered instance, no
+worker DaemonSet, no node prep, no ate-install path. The restore API is also
+actively churning (the tip commit itself removed `onResume.fromData` /
+DATA_ON_GOLDEN restore scope). Verdict: microvm manifests NOT usable → E-04
+stays gated. Unblocks when upstream lands a deploy path (revisit trigger:
+"manifests/microvm/ matures"); forcing it now = fork owns the whole worker
+deployment plus rework on a moving restore API.
+
 ## References
 
 - `agent-substrate/substrate` — inspected 21/09 + 01/10/2026 (this fork's upstream)
