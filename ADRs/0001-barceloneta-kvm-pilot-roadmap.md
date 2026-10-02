@@ -69,19 +69,63 @@ Dependency order; each with hypothesis and success criterion.
   k3s idle + one runsc sandbox (stack cost ≈ 0.4 GB of the 8 GB cap);
   `/home/k3s` = 253 MB of the 30 GB cap; load 0.15. Protected set intact after
   install + restart: maquinista active, Tailscale ssh up, ct100–102 running.
-- [ ] **E-01 — manifest delta audit: upstream → k3s** (0.5–1 d) — *do first, falsifies
+- [~] **E-01 — manifest delta audit: upstream → k3s** (0.5–1 d) — *do first, falsifies
   the pilot's load-bearing assumption*
   Apply `manifests/ate-install` verbatim on k3s; record every failure and the minimal
   fix. Fixes land here as `k3s-delta/*` branches. Success: documented patch set + green
   apply; a written verdict on whether upstream would take the changes.
-- [ ] **E-02 — PTY fidelity probe** (0.5–1 d; feeds maquinista G-00b)
+
+  **Progress (2026-10-02): demo sandbox suite green on k3s.** `ate-setup deploy demo
+  sandbox` (fork branch `barceloneta-k3s`) builds with ko and pushes to the local
+  registry `100.74.121.4:30500` (rustfs S3); atelet registry auth off; envoy cargo env
+  exported; GKE PodMonitoring dropped. Creates atespace `ate-demo-sandbox`: 2×
+  `sandbox-workerpool` pods Running (runsc), template `sandbox-template`
+  (SANDBOX_CLASS_GVISOR) with golden snapshot published. Fork delta so far is deploy
+  plumbing only — no Go code changes. Still open: apply the FULL `manifests/ate-install`
+  set + written upstream verdict (this audit remains the falsification gate for E-04).
+- [x] **E-02 — PTY fidelity probe** (0.5–1 d; feeds maquinista G-00b)
   Hypothesis: an interactive agent TUI inside an actor yields a stream clean enough
   for MonitorProfile-style transcript scraping. Success: no torn reads, echo semantics
   known, written go/no-go for relay-through-Substrate.
+
+  **Result (2026-10-02): GO.** Probe: 1.9 MB static Go driver (stdlib-only PTY via
+  `/dev/ptmx` ioctls, no module downloads) injected into a `sandbox-template` actor as
+  44×60 KB base64 chunks through the atenet router `/process` endpoint (md5 verified
+  end-to-end). Driver spawned `sh → busybox vi` on a real PTY (24×80 winsize), recorded
+  every master read with `(timestamp, size)` metadata, and fed scripted keystrokes from
+  files — all through plain HTTP POSTs, no actor-side tooling needed. Findings:
+  (1) **PTY stream is byte-exact**: 13 recorded chunks sum exactly to the 972 B stream,
+  no loss, no duplication; reassembled stream parses as 67/67 valid CSI sequences;
+  vi drew status lines (`[Modified] 4/4 100%`), inserted text, and exited with a clean
+  alt-screen teardown (`ESC[?1049l`) + `:wq` save (`5L, 97C`).
+  (2) **Suspend/resume preserves the live process tree**: actor suspended (≈5 s, worker
+  pod released) and resumed on a DIFFERENT worker pod with the SAME pids — driver and
+  vi kept running; the held-open PTY master stayed writable across restore; post-resume
+  keystrokes landed in the same vi buffer and `:wq` saved a file containing BOTH
+  pre-suspend and post-resume text. This is checkpoint/restore of the sandbox, not a
+  respawn-from-golden. Stream during the freeze window: exactly one 227.6 s gap, zero
+  stale output dumped at restore.
+  (3) **Echo semantics**: cooked phase (`sh`) echoes typed input as expected; vi runs
+  the tty raw (typed chars not echoed — screen updates only). Transcript scrapers must
+  parse the ANSI stream, not assume echo.
+  (4) **Actors run under gVisor** (`/proc` exposes `gvisor/`, `sentry-meminfo`).
+  (5) **Actor budget observed**: 1 GiB RAM, 2 CPU shares, uid 0, Alpine 3.24.1 +
+  busybox only — no python3/script/tmux/socat; egress is default-deny (TLS to
+  dl-cdn.alpinelinux.org reset ⇒ E-03 preview: transcript egress must go through
+  atenet/ate-env fs ops, not direct network).
+  (6) **`/process` is effectively at-least-once** (duplicate execution observed across
+  retries) — arbitrary command execution must be idempotent or lock-protected; probe
+  driver takes an `O_EXCL` lock at startup.
+  Caveat: probe drove input+output through atenet `/process` (request/response); a
+  live WebSocket/streaming relay (what maquinista G-00b would use) is NOT yet exercised
+  — E-03 or a follow-up should stream the same stream before wiring MonitorProfile
+  scraping. Artifacts: `~/e02-artifacts/` on the box (driver.go, pty.raw, pty.meta).
 - [ ] **E-03 — transcript egress via ate-env** (0.5–1 d; feeds G-00c)
   Ship JSONL transcript lines out of sandboxes using per-actor fs ops (ate-env is
   alpha). Measure per-append latency + auth overhead; stream vs poll. Success: measured
-  cost table → per-runner go/no-go.
+  cost table → per-runner go/no-go. (Design note from E-02: direct egress is blocked
+  inside actors — TLS reset by default-deny policy — so ate-env/atened is the only
+  path; that constraint is now confirmed, not assumed.)
 - [ ] **E-04 — microVM probe** (~1 d; gated on upstream) — `/dev/kvm` is direct on the
   host, no passthrough needed
   `cmd/ateom-microvm` + `manifests/microvm/` on the NUC; target boot + snapshot
