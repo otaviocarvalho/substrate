@@ -209,12 +209,15 @@ Dependency order; each with hypothesis and success criterion.
   rejects (`readyz` unknown; `snapshotsConfig` vs fork's `snapshotConfig`) — the
   manifest was patched by hand to deploy; the fork is behind upstream's
   ActorTemplate proto. Port the delta before E-04.
-- [ ] **E-04 — microVM probe** (~1 d; gated on upstream) — `/dev/kvm` is direct on the
-  host, no passthrough needed
+- [x] **E-04 — microVM probe** (~1 d; `/dev/kvm` direct on the host, no passthrough
+  needed) — DONE 02/10/2026, PASS on barceloneta (outcome log below; ran on the fork
+  after the gate audit found upstream microvm unusable)
   `cmd/ateom-microvm` + `manifests/microvm/` on the NUC; target boot + snapshot
   < 5 s. Trigger: E-01 lands AND upstream microvm manifests confirmed usable
   (directory exists as of 01/10 — audit its maturity before starting).
-- [ ] **E-05 — guardrails for the protected set** (~0.5 d)
+- [x] **E-05 — guardrails for the protected set** (~0.5 d) — DONE 02/10/2026, PASS
+  after two reboot-caught fixes (outcome log below; drill recipes live in the
+  barceloneta-ops skill, memhog script in `barceloneta-infra/scripts/`)
   Non-sacrificial set = **maquinista bot + Tailscale ssh/deploy path** only. Failure
   drills MAY take down ct100–102 (accepted); post-drill chores: confirm pihole/navidrome/
   jellyfin recover, `k3s-uninstall` reverses iptables/cgroup state, bot unit restarts
