@@ -249,17 +249,16 @@ spec:
         - name: host-dev
           mountPath: /host/dev
           readOnly: true
-        # Fork (k3s): drop upstream's credential-provider mounts. The config
-        # one is fatal here: its hostPath is /etc/srv/kubernetes/... with
-        # type FileOrCreate, and FileOrCreate cannot create the missing GKE
-        # parent dir, so the pod loops on FailedMount. The bin dir would
-        # silently fabricate an empty /home/kubernetes/bin. Either way the
-        # plugin is never consulted -- the --image-credential-provider-*
-        # flags above are unset. Same rationale as upstream's kind overlay.
-        - mountPath: /run/image-credential-provider/bin
-          $patch: delete
-        - mountPath: /run/image-credential-provider/config.yaml
-          $patch: delete
+        # Fork (k3s): upstream's credential-provider mounts and their volumes
+        # are REMOVED in this fork (not $patch:delete -- ate-setup applies
+        # base manifests via server-side apply, which rejects strategic-merge
+        # directives). The config mount is fatal on k3s: its hostPath is
+        # /etc/srv/kubernetes/... with type FileOrCreate, and FileOrCreate
+        # cannot create the missing GKE parent dir, so the pod loops on
+        # FailedMount. The bin dir would silently fabricate an empty
+        # /home/kubernetes/bin. Either way the plugin is never consulted --
+        # the --image-credential-provider-* flags are unset (see args above).
+        # Same rationale as upstream's kind overlay.
       volumes:
       - name: run-ateom
         hostPath:
@@ -286,14 +285,9 @@ spec:
         hostPath:
           path: /dev
           type: Directory
-      # Fork (k3s): the credential-provider volumes are deleted (the mounts
-      # above reference them; with the mounts gone these would be dead
-      # entries -- and the config hostPath is a FileOrCreate under a GKE-only
-      # parent dir, so keeping it would keep the FailedMount loop alive).
-      - name: image-credential-provider-bin
-        $patch: delete
-      - name: image-credential-provider-config
-        $patch: delete
+      # Fork (k3s): upstream's credential-provider volumes (hostPaths under
+      # GKE-only dirs) are removed here -- see the container volumeMounts
+      # comment above for why.
       # Identity for mutual TLS with the ate-apiserver. atelet is not behind a
       # Service, so it uses a podidentity (SPIFFE) cert rather than a servicedns
       # serving cert (which requires DNS SANs it would not have); the
