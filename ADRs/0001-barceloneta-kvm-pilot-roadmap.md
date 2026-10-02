@@ -338,6 +338,52 @@ all gaps were operational, not code.
   are throwaway. When upstream lands k3s-class manifests, re-run and retire this ad-hoc
   path.
 
+**02/10/2026 — E-05 guardrail drills (k3s restart / memory pressure / cold reboot) PASS;
+the reboot drill caught two pre-pilot runtime-only layers, both made durable same-day:**
+
+Verdict first: the protected set (maquinista, tailscaled, k3s, ct101/102 media) survives
+all three drills. The reboot drill earned its keep: wifi and the media bridge had been
+"working" only because nobody had cold-booted the box since they were hand-set.
+
+- **Drill A (k3s restart): PASS** — active again in 5 s, node Ready, all pods Running,
+  maquinista journal streaming straight through.
+- **Drill B (memory pressure): PASS** — transient unit hogged 7 G for 60 s (used
+  3.9→10.8 G, available floor 4.7 G), zero oom-kill lines, protected set untouched,
+  clean release.
+- **Drill C (reboot; fired by Otavio — `systemctl reboot` is agent-blocked): PASS after
+  remediation.** k3s active on boot, node Ready, counter-microvm workers re-created 1/1,
+  maquinista writing fresh outbox rows, tailscaled rejoined, tinyproxy up. Two failures,
+  both root-caused and fixed:
+  1. **Host wifi never associated at boot.** The PVE installer wrote a bare
+     `iface wlo1 inet manual` stub into `/etc/network/interfaces`; NM ignores anything
+     listed in that file, and the stub itself does nothing — so nothing ever drove
+     association. Fix: stub deleted (`interfaces.bak` kept); NM owns wlo1 (autoconnect
+     profile `maresia`), leases 192.168.0.40 at boot.
+  2. **vmbr0 + media NAT/DNAT were runtime-only since 29/09.** The bridge was never in
+     `/etc/network/interfaces` and the `:4533`/`:8096` DNATs were ad-hoc iptables, so
+     the CT onboot starts failed with `bridge 'vmbr0' does not exist`. Fix: durable
+     `auto vmbr0` stanza (10.10.0.1/24) with post-up MASQUERADE + DNAT (ct101
+     10.10.0.33:4533, ct102 10.10.0.10:8096) + FORWARD rules; `ifreload -a` applied it
+     live, both CTs started, navidrome/jellyfin answer 200 through the tailnet DNAT.
+- **Egress gate: PASS, with IP rotation noted.** The household IPv4 rotated
+  89.6.118.198 → 37.223.90.15; ip-api confirms the same ASN (AS12430 Vodafone España,
+  residential). The ES-residential property holds; the "byte-identical exit" property
+  from the 29/09 egress move is gone (dynamic line rotates).
+- **Actor state across cold boot (upstream-shaped finding).** Actor `mc-e04` was
+  SUSPENDED (FULL snapshot in rustfs) before the reboot; after cold boot the api held
+  it as ACTOR_STATE_CRASHED (unclean worker loss at power-off) and both resume paths
+  (`kubectl ate resume` and POST/AssignWorker) reject CRASHED — the precondition wants
+  SUSPENDED/PAUSED. So snapshot **bytes** survive a node reboot (rustfs PVC) but the
+  control-plane SUSPENDED state does not. Cross-boot-equivalent restore proof completed
+  with a fresh actor `mc-e05`: create → POST 1 (cold golden wake) → POST 2 (warm) →
+  suspend → BOTH worker pods deleted (the same unclean-loss event) → POST → **count 3,
+  memory AND file counters continuous**. Restore into fresh workers works; only the
+  SUSPENDED state transition is lost. A CRASHED→resume-from-last-snapshot path upstream
+  would make snapshots survive host reboots.
+- **Cleanup:** the ate-env `default-template-workerpool` deployment (5 pods in
+  ErrImagePull/CrashLoop since the E-03 deploy — image never pushed) scaled to 0;
+  `ate-env-api` left at 1/1.
+
 ## References
 
 - `agent-substrate/substrate` — inspected 21/09 + 01/10/2026 (this fork's upstream)
