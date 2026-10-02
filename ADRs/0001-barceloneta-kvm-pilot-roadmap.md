@@ -381,8 +381,13 @@ all three drills. The reboot drill earned its keep: wifi and the media bridge ha
   with a fresh actor `mc-e05`: create → POST 1 (cold golden wake) → POST 2 (warm) →
   suspend → BOTH worker pods deleted (the same unclean-loss event) → POST → **count 3,
   memory AND file counters continuous**. Restore into fresh workers works; only the
-  SUSPENDED state transition is lost. A CRASHED→resume-from-last-snapshot path upstream
-  would make snapshots survive host reboots.
+  SUSPENDED state transition is lost. **Correction (later 02/10): the recovery path
+  already exists upstream — `kubectl ate revert actor <name> -a <atespace>` accepts
+  CRASHED, returns the actor to SUSPENDED (snapshot untouched), and the next resume
+  restores from the last snapshot.** Proven on this very repro: mc-e04 (CRASHED across
+  the real reboot) → revert → resume → POST read count 3, memory AND file continuous,
+  then 4/5/6 steady. No upstream ask; resume rejecting CRASHED is by design — revert
+  is the two-step recovery verb.
 - **Cleanup:** the ate-env `default-template-workerpool` deployment (5 pods in
   ErrImagePull/CrashLoop since the E-03 deploy — image never pushed) scaled to 0;
   `ate-env-api` left at 1/1.
