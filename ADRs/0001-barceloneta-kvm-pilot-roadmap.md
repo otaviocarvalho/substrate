@@ -294,7 +294,49 @@ actively churning (the tip commit itself removed `onResume.fromData` /
 DATA_ON_GOLDEN restore scope). Verdict: microvm manifests NOT usable → E-04
 stays gated. Unblocks when upstream lands a deploy path (revisit trigger:
 "manifests/microvm/ matures"); forcing it now = fork owns the whole worker
-deployment plus rework on a moving restore API.
+deployment plus rework on a moving restore API. (Superseded same day:
+Otavio un-gated E-04 and accepted the fork-ownership cost — outcome below.)
+
+**02/10/2026 — E-04 microVM (kata + cloud-hypervisor) PASS on barceloneta, ~13x under
+the boot/snapshot target; zero fork-code changes:**
+
+Verdict first: the microVM sandbox class runs on the k3s NUC with suspend **0.45 s**
+(FULL guest-memory snapshot to rustfs) and snapshot-resume **0.38 s** (counter continuity
+2->3 across the round-trip; cold wake from golden 0.37 s). Target was < 5 s. Every piece
+needed upstream already ships (asset pipeline, device plugin, demo, ate-setup command);
+all gaps were operational, not code.
+
+- **Node**: `/dev/kvm` present (kvm_intel); live atelet `v0.3.0-46-g0687c6ee` already
+  mounts `/dev` + kubelet device-plugins and runs the in-process device plugin, so the
+  node advertised `ate.dev/kvm: 4096` with **no manifest edits**. atecontroller injects
+  the kvm extended resource into microvm worker pods (`workerpool_apply.go:432`); workers
+  get the device without privileged mode.
+- **Assets**: `hack/microvm-assets/assemble.sh ARCH=amd64` (kata-static 4.1.0 +
+  cloud-hypervisor v53.0 + virtiofsd 1.14.0) produced sha256s byte-identical to the pins
+  in `manifests/microvm/sandboxconfig-microvm.yaml.tmpl`. Staged to the existing rustfs
+  bucket `s3://ate-snapshots/kata-assets/` (aws-cli container, host network, ClusterIP
+  endpoint). SandboxConfig applied from the upstream template with
+  `BUCKET_NAME=ate-snapshots`.
+- **Demo**: `ate-setup deploy demo counter-microvm` (exists upstream; runs `ko resolve`
+  against the TLS registry). Assets are fetched by workers at runtime — no host-installed
+  cloud-hypervisor needed.
+- **k3s deltas hit (all operational)**: (1) registry moved with the cluster rebuild —
+  pushes go to `100.74.121.4:30500` (NodePort, TLS, CA in the system trust store); the
+  old `192.168.100.2:5000` is dead. (2) Box `/tmp` is a 2.7 G partition — large
+  extractions need `TMPDIR=/home/barceloneta/tmp-go`. (3) The demo deploy stamps the
+  nodeSelector with the repo-HEAD version (ignores `SUBSTRATE_VERSION` env) — fix is to
+  patch the WorkerPool spec (`/spec/template/nodeSelector/ate.dev~1substrate-version` to
+  `v0.3.0-46-g0687c6ee`); patching the Deployment instead gets reconciled away by the
+  WorkerPool controller. (4) A demo deploy that aborts at the rollout wait skips
+  `ensure_atespace` — manual recovery is `kubectl ate create atespace <ns>` then
+  `create actor-template` (a missing atespace surfaces as `FailedPrecondition:
+  persistence: failed precondition`). (5) `hack/microvm-assets/*` are kind-flavored
+  (networking via kind node netns) — staging needed the host-network aws-cli variant
+  above.
+- **Fork ownership accepted**: the rustfs bucket `kata-assets/` prefix + applied
+  SandboxConfig are the fork's to re-stage after upstream asset bumps; the demo objects
+  are throwaway. When upstream lands k3s-class manifests, re-run and retire this ad-hoc
+  path.
 
 ## References
 
