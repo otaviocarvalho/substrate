@@ -69,7 +69,7 @@ Dependency order; each with hypothesis and success criterion.
   k3s idle + one runsc sandbox (stack cost ≈ 0.4 GB of the 8 GB cap);
   `/home/k3s` = 253 MB of the 30 GB cap; load 0.15. Protected set intact after
   install + restart: maquinista active, Tailscale ssh up, ct100–102 running.
-- [~] **E-01 — manifest delta audit: upstream → k3s** (0.5–1 d) — *do first, falsifies
+- [x] **E-01 — manifest delta audit: upstream → k3s** (0.5–1 d) — *do first, falsifies
   the pilot's load-bearing assumption*
   Apply `manifests/ate-install` verbatim on k3s; record every failure and the minimal
   fix. Fixes land here as `k3s-delta/*` branches. Success: documented patch set + green
@@ -83,6 +83,47 @@ Dependency order; each with hypothesis and success criterion.
   (SANDBOX_CLASS_GVISOR) with golden snapshot published. Fork delta so far is deploy
   plumbing only — no Go code changes. Still open: apply the FULL `manifests/ate-install`
   set + written upstream verdict (this audit remains the falsification gate for E-04).
+
+  **Re-run + closure (2026-10-02, upstream tip `6a35150e` → fork `0687c6ee`): E-01 CLOSED.**
+  Trigger: the same-day upstream tracking merge changed 9 manifest files across 15
+  commits, so the audit was re-run per its own revisit rule. Verdict on the merge delta:
+  egress dataplanes consolidated (mitm folded into `atenet-egress.yaml`, +825; the
+  1396-line `-with-sdsmint` variant and the `agentgateway-egress-mitm` component
+  deleted upstream — neither was in our deploy path); `cordon-control-plane`
+  restructured but still flag-gated (unused); kind-overlay consistency fix (not our
+  path); ClusterTrustBundle v1 support is controller-internal (no static manifest
+  refs; controller + CRD upgrade together). Fork delta vs upstream tip is docs +
+  manifests + Dockerfile only (no Go, no generated proto) → no buf regen needed.
+  Three new fork fixes landed, each found by deploy-and-observe:
+  1. `egress-mitm-ca-pool` Secret: the consolidated egress mounts it non-optionally
+     (`ca-state` volume); without it the pod loops on FailedMount and the rollout
+     stalls while the old RS keeps serving. Bootstrap once with
+     `ate-setup create egress-mitm-ca-pool` (idempotent, keeps existing).
+  2. Credential-provider mounts REMOVED from base `atelet.yaml` (commit `6d87ab35`):
+     upstream #917 added hostPath mounts whose config path is
+     `/etc/srv/kubernetes/cri_auth_config.yaml` with `type: FileOrCreate` —
+     FileOrCreate cannot create the missing GKE parent dir, so on k3s the pod loops
+     on FailedMount forever. Mirrors upstream's own kind-overlay remedy.
+  3. `--gcp-auth-for-image-pulls=false` DROPPED (commit `0687c6ee`): #917 removed the
+     flag; the binary rejected it (`unknown flag`) and crashlooped. With no kubelet
+     credential providers configured, pulls are anonymous — correct for our
+     auth-disabled node-local registry. mTLS flags verified still present.
+  Process lesson: ate-setup applies base manifests via SERVER-SIDE apply —
+  strategic-merge `$patch: delete` directives are rejected (`field not declared in
+  schema`); fork owns the base file, so blocks are deleted outright.
+  Validation: full redeploy green on `v0.3.0-46-g0687c6ee` (api-server 2/2, atelet
+  1/1, atenet-egress 3/3 on the consolidated mitm config, router/controller/postgres/
+  rustfs up), then counter demo re-run as the end-to-end check: POST → suspend → POST
+  both counters continued (memory 2, file 2) — snapshot/restore intact on upstream tip.
+  Ops incident same day: the box's Tailscale MagicDNS stub (100.100.100.100) began
+  SERVFAILing all external names mid-session (worked ~30 min earlier; suspected
+  pihole upstream, which Otavio says can be shut down if needed). Node unblocked via
+  `tailscale set --accept-dns=false` + `nameserver 192.168.0.1` (router) in
+  `/etc/resolv.conf` + CoreDNS restart — pod-level DNS verified. Tailscale
+  networking itself untouched (it is the only way in). Side effect: .ts.net names no
+  longer resolve from the box (ops references use TS IPs anyway).
+  Remaining after closure: E-05 guardrails (only experiment left before pilot
+  go/no-go); E-04 still upstream-gated (`manifests/microvm/`).
 - [x] **E-02 — PTY fidelity probe** (0.5–1 d; feeds maquinista G-00b)
   Hypothesis: an interactive agent TUI inside an actor yields a stream clean enough
   for MonitorProfile-style transcript scraping. Success: no torn reads, echo semantics
