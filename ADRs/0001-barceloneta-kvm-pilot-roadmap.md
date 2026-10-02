@@ -215,11 +215,38 @@ single-node k3s without hidden GCP/full-cluster assumptions.
 - Scale-out trigger fires (pilot validated, > ~6 sandboxes needed) → dedicated metal,
   where bare-host k3s is the natural default anyway.
 
+## Outcome log
+
+**02/10/2026 — upstream-first contributions + wedge closure (WS-A/WS-B/WS-C):**
+
+- **WS-B append-rpc**: `WriteFileRequest.append` (proto field 4, additive) is PR
+  [agent-substrate/env#72](https://github.com/agent-substrate/env/pull/72) (open, ready for
+  review): guest opens `O_CREATE|O_WRONLY|O_APPEND` on first stream message; 4 tests incl.
+  e2e through real router+guest; verifier PASS against `.specs/features/append-rpc/checks.md`
+  (C1–C5, coverage complete). Fork carries the cherry-pick + specs/tooling: env fork branch
+  `barceloneta-k3s` @ 36c0274.
+- **WS-A wedge**: not reproducible under controlled conditions — missing-path reads
+  `NotFound` in ~25 ms (cold + warm), 150-op sequential load clean, forced suspend → warm
+  read auto-resumed at 185 ms, composite follow-stream + poller + mid-run suspend 60/60
+  clean. Filed upstream as
+  [agent-substrate/env#73](https://github.com/agent-substrate/env/issues/73) with the
+  bisector (`wedge`, `e03probe` — now in-repo under `.specs/tools/` on the env fork branch,
+  superseding the scratch `~/code/env/e03probe/` copy).
+- **LIST/GLOB**: deliberately cut from #72; proposed upstream as
+  [agent-substrate/env#74](https://github.com/agent-substrate/env/issues/74)
+  (single-directory glob + pagination; recursion/watch out of scope for v1).
+- **WS-C upstream tracking**: `barceloneta-k3s` merged upstream/main @ 6a35150e (fork
+  064000eb). Proto drift since merge-base 148df4b0 (`ateapi.proto` ±57, `atelet.proto` ±28)
+  touches no fork code — fork delta is docs/manifests only. `atelet.yaml` merge conflict
+  resolved keeping `--gcp-auth-for-image-pulls=false`: upstream's kubelet
+  credential-provider mounts are GKE/EKS-specific and have no k3s equivalent here.
+
 ## References
 
 - `agent-substrate/substrate` — inspected 21/09 + 01/10/2026 (this fork's upstream)
 - `agent-substrate/env` (ate-env) — cloned on the box @ ab40c7b 02/10/2026; alpha API;
-  deployed to k3s (ns `ate-env`); probe at `~/code/env/e03probe/`
+  deployed to k3s (ns `ate-env`); probe at `~/code/env/e03probe/`; probe + wedge bisector
+  in-repo on env fork branch `barceloneta-k3s` at `.specs/tools/` (`otaviocarvalho/env`)
 - `google/ax` — CRDs (Task/Workspace/Gateway/Model) inspected 21/09/2026
 - maquinista ADR-0002/0003/0004 + `references/substrate-ax-integration.md` (fact base)
 - Hetzner FAQ nested-virt quote — fetched 21/09/2026
