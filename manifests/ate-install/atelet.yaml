@@ -151,11 +151,12 @@ spec:
       - name: atelet
         image: ko://github.com/agent-substrate/substrate/cmd/atelet
         args:
-        # Fork (k3s): images come from the node-local registry with auth
-        # disabled; upstream's kubelet credential-provider flags/mounts are
-        # GKE/EKS-specific and have no equivalent here (the mounts are deleted
-        # below -- see the volumes comment).
-        - --gcp-auth-for-image-pulls=false
+        # Fork (k3s): images come from the node-local registry. Upstream's
+        # --gcp-auth-for-image-pulls flag is GONE as of the credential-provider
+        # rework (#917): without kubelet credential providers configured, image
+        # pulls are anonymous -- exactly right for our auth-disabled registry.
+        # The kubelet credential-provider flags/mounts are GKE/EKS-specific and
+        # are removed from this fork (see volumes comment below).
         - --grpc-server-cred-bundle=/run/podidentity.podcert.ate.dev/credential-bundle.pem
         - --client-ca-certs=/run/podidentity.podcert.ate.dev/trust-bundle.pem
         - --ateapi-ca-file=/run/servicedns.podcert.ate.dev/trust-bundle.pem
